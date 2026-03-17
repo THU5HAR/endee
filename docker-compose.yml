@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+  # ----------------------------------------------------------------
+  # Endee Vector DB
+  # ----------------------------------------------------------------
+  endee:
+    image: endeeio/endee-server:latest
+    container_name: endee-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - endee-data:/data
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      # Uncomment and set a token to enable authentication:
+      # - NDD_AUTH_TOKEN=your_secret_token_here
+      - DATA_DIR=/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ----------------------------------------------------------------
+  # Streamlit Search UI
+  # ----------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: endee-code-search-ui
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data       # mount pre-built embeddings + JSONL
+    environment:
+      - ENDEE_HOST=endee
+      - ENDEE_PORT=8080
+      - ENDEE_INDEX=code_search
+      - EMBED_MODEL=all-MiniLM-L6-v2
+      - EMBED_BATCH=32
+      - TOP_K=20
+      - LOG_LEVEL=INFO
+    depends_on:
+      endee:
+        condition: service_healthy
+    command: ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+
+volumes:
+  endee-data:
+    driver: local

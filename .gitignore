@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Data (large generated files — regenerate with pipeline)
+data/repos/
+data/embeddings.npz
+data/metadata.json
+data/*.jsonl
+
+# Endee data
+endee-data/
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Sentence-transformers model cache
+.cache/
+
+# Logs
+*.log

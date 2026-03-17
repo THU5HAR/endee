@@ -1,0 +1,29 @@
+# ============================================================
+# Endee Code Search — Python Dependencies
+# Python 3.11+
+# ============================================================
+
+# --- Embedding ---
+sentence-transformers>=2.6.0
+torch>=2.2.0
+
+# --- Code Parsing ---
+tree-sitter==0.21.3
+tree-sitter-python==0.21.0
+tree-sitter-javascript==0.21.4
+
+# --- Vector Store Client ---
+requests>=2.31.0
+msgpack>=1.0.7
+
+# --- Ranking ---
+rank-bm25>=0.2.2
+
+# --- Serialization / Storage ---
+numpy>=1.26.0
+
+# --- Streamlit UI ---
+streamlit>=1.32.0
+
+# --- Utilities ---
+tqdm>=4.66.0
