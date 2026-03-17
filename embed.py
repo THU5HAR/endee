@@ -64,6 +64,42 @@ def load_all_snippets(data_dir: Path) -> list[dict]:
     return records
 
 
+def cap_snippets(records: list[dict], max_snippets: int) -> list[dict]:
+    """
+    Evenly sample up to max_snippets from records, keeping proportional
+    representation across repos so no single repo dominates.
+    """
+    if max_snippets <= 0 or len(records) <= max_snippets:
+        return records
+
+    import random
+    from collections import defaultdict
+
+    by_repo: dict[str, list] = defaultdict(list)
+    for r in records:
+        by_repo[r.get("repo", "unknown")].append(r)
+
+    per_repo = max(1, max_snippets // len(by_repo))
+    sampled: list[dict] = []
+    sampled_ids: set[str] = set()
+    for repo_recs in by_repo.values():
+        for rec in repo_recs[:per_repo]:
+            sampled.append(rec)
+            sampled_ids.add(rec["id"])
+
+    # Top up to max_snippets if under quota
+    if len(sampled) < max_snippets:
+        for r in records:
+            if r["id"] not in sampled_ids:
+                sampled.append(r)
+                sampled_ids.add(r["id"])
+            if len(sampled) >= max_snippets:
+                break
+
+    log.info("Capped %d → %d snippets (max_snippets=%d)", len(records), len(sampled[:max_snippets]), max_snippets)
+    return sampled[:max_snippets]
+
+
 def build_embed_texts(records: list[dict]) -> list[str]:
     """
     Construct the text string to embed for each record.
@@ -89,6 +125,7 @@ def generate_embeddings(
     data_dir: Path = DATA_DIR,
     model_name: str = EMBED_MODEL,
     batch_size: int = EMBED_BATCH,
+    max_snippets: int = 0,
 ) -> tuple[np.ndarray, list[dict]]:
     """
     Embed all code snippets.
@@ -99,6 +136,9 @@ def generate_embeddings(
 
     if not records:
         raise ValueError("No records to embed. Run ingest.py first.")
+
+    if max_snippets > 0:
+        records = cap_snippets(records, max_snippets)
 
     log.info("Loading model '%s' ...", model_name)
     t0 = time.time()
@@ -181,6 +221,8 @@ if __name__ == "__main__":
     parser.add_argument("--data-dir", default="data", help="Directory containing JSONL files.")
     parser.add_argument("--model", default=EMBED_MODEL, help="Sentence-transformers model name.")
     parser.add_argument("--batch-size", type=int, default=EMBED_BATCH, help="Encoding batch size.")
+    parser.add_argument("--max-snippets", type=int, default=0,
+                        help="Cap total snippets (0 = no cap). Use ~10000 for a fast demo index.")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -188,6 +230,7 @@ if __name__ == "__main__":
         data_dir=data_dir,
         model_name=args.model,
         batch_size=args.batch_size,
+        max_snippets=args.max_snippets,
     )
     save_embeddings(vectors, metadata, data_dir=data_dir)
     log.info("Stage 2 complete. Run index.py to upload to Endee.")

@@ -132,10 +132,14 @@ def semantic_search(
     query_vec = list(embed_query(query))
     embed_ms = (time.time() - t0) * 1000
 
-    # Build Endee search request
+    # Request extra candidates when filters are applied so client-side filter still yields enough
+    k_request = top_k
+    if (lang_filter and lang_filter != "all") or (repo_filter and len(repo_filter) > 0):
+        k_request = min(top_k * 5, 100)  # ask for more, then filter and slice to top_k
+
     payload: dict = {
         "vector": query_vec,
-        "k": top_k,
+        "k": k_request,
     }
 
     # Build filter expression if language filter is specified
@@ -166,6 +170,7 @@ def semantic_search(
 
     # Apply client-side filters (repo, lang) in case Endee filter not supported
     hits = _apply_filters(hits, lang_filter=lang_filter, repo_filter=repo_filter)
+    hits = hits[:top_k]  # keep only top_k after filtering
 
     log.info(
         "Query '%s': %d hits | embed=%.1fms | search=%.1fms | total=%.1fms",
@@ -174,32 +179,55 @@ def semantic_search(
     return hits
 
 
-def _parse_hits(raw: dict) -> list[dict]:
+def _parse_hits(raw) -> list[dict]:
     """
     Parse the Endee msgpack ResultSet into a flat list of hit dicts.
-    Endee response format: { "results": [ { "id": ..., "score": ..., "meta": ... }, ... ] }
+
+    Endee returns a list of lists, each item:
+      [score, id, meta_bytes, filter_str, norm, sparse_data]
     """
-    results = raw if isinstance(raw, list) else raw.get("results", [])
+    # Normalise: handle both list-of-lists (msgpack) and list/dict (JSON fallback)
+    if isinstance(raw, dict):
+        results = raw.get("results", [])
+    elif isinstance(raw, list):
+        results = raw
+    else:
+        return []
+
     hits = []
     for item in results:
-        hit_id = item.get("id", "")
-        score = float(item.get("score", 0.0))
-
-        # meta is a JSON string stored during insert
-        meta_raw = item.get("meta", "{}")
-        if isinstance(meta_raw, (bytes, bytearray)):
-            meta_raw = meta_raw.decode("utf-8", errors="replace")
         try:
-            meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
-        except json.JSONDecodeError:
-            meta = {"raw_meta": str(meta_raw)}
+            if isinstance(item, (list, tuple)):
+                # Endee msgpack format: [score, id, meta, filter, norm, sparse]
+                score = float(item[0]) if len(item) > 0 else 0.0
+                hit_id = item[1] if len(item) > 1 else ""
+                meta_raw = item[2] if len(item) > 2 else b"{}"
+            elif isinstance(item, dict):
+                # JSON fallback format
+                score = float(item.get("score", 0.0))
+                hit_id = item.get("id", "")
+                meta_raw = item.get("meta", "{}")
+            else:
+                continue
 
-        hits.append({
-            "id": hit_id,
-            "score": score,
-            "vector_score": score,
-            **meta,
-        })
+            # Decode meta bytes → dict
+            if isinstance(meta_raw, (bytes, bytearray)):
+                meta_raw = meta_raw.decode("utf-8", errors="replace")
+            try:
+                meta = json.loads(meta_raw) if isinstance(meta_raw, str) else {}
+            except json.JSONDecodeError:
+                meta = {}
+
+            hits.append({
+                "id": str(hit_id),
+                "score": score,
+                "vector_score": score,
+                **meta,
+            })
+        except Exception as exc:
+            log.debug("Skipping malformed hit: %s — %s", item, exc)
+            continue
+
     return hits
 
 

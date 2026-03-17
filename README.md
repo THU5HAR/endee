@@ -22,6 +22,49 @@ The engine works by:
 
 ---
 
+## Product Requirements (from PRD)
+
+- **Problem**: Developers struggle to find relevant code in large Python repos using only keyword search; they cannot express intent in natural language and get matching implementations back.
+- **Solution**: A semantic code search engine that:
+  - Ingests GitHub repos and parses functions with tree-sitter
+  - Embeds each snippet into a 384‑dimensional vector
+  - Indexes vectors in Endee for fast ANN search
+  - Re-ranks results with a hybrid of vector similarity + BM25 keyword scores
+  - Presents results in a clean Streamlit UI with syntax highlighting and copy‑to‑clipboard
+- **Primary users**: Tap Academy evaluators and developers exploring popular Python OSS libraries.
+- **Success targets**:
+  - Query latency p95 \< **50 ms** (end‑to‑end in the UI)
+  - Result relevance **≥ 90% Recall@10** on a manual query set
+  - At least **10,000** functions indexed
+  - Full 5‑stage pipeline: `ingest → embed → index → query → rank` working reliably.
+
+For the full PRD, see `PRD.md`.
+
+---
+
+## Technical Overview (from TRD)
+
+- **Stack**:
+  - Backend: **Python 3.11**
+  - UI: **Streamlit 1.32+**
+  - Vector DB: **Endee** (HTTP API, HNSW index, cosine distance)
+  - Embeddings: `sentence-transformers/all-MiniLM-L6-v2` (384‑dim)
+  - Parsing: **tree‑sitter** (Python grammar) for AST‑based function extraction
+  - Ranking: **rank-bm25** for BM25 over `name + docstring + code`
+- **Offline pipeline**:
+  1. `ingest.py` — clone repos, parse functions, write `data/*.jsonl`
+  2. `embed.py` — load JSONL, build embed text, encode to vectors, save `embeddings.npz` + `metadata.json`
+  3. `index.py` — create Endee index (`code_search`), batch‑upsert vectors + metadata via HTTP
+- **Online pipeline**:
+  1. `query.py` — embed the user query, call Endee `/search`, decode msgpack response
+  2. `rank.py` — compute BM25 scores, normalize, and fuse with vector scores  
+     `final_score = 0.7 * vector_score + 0.3 * bm25_score`
+  3. `app.py` — Streamlit UI: search bar, filters, stats bar, result cards with code previews.
+
+For the full TRD, see `TRD.md`.
+
+---
+
 ## Architecture
 
 ```mermaid
